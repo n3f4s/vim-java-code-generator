@@ -8,5 +8,6 @@ if __name__ == '__main__':
 
     src_files = src.readlines()
 
-    variables = getVars(src_files)
-    print("\n".join(generateMethod('equals', 'boolean', variables, 'Object', ['&&','=='])))
+    #variables = getVars(src_files)
+    #print("\n".join(generateMethod('equals', 'boolean', variables, 'Object', ['&&','=='])))
+    print("\n".join(generateMethod('hashCode', src_files)))
