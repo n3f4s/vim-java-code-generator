@@ -5,11 +5,10 @@ python << EOF
 import re
 import vim
 
-#TODO : gestion plus poussé de l'analyse (i.e. : savoir dans quelle classe on est ?, classe imbriquée, ...)
-#TODO : gestion des erreurs
-#TODO : ajouter methodes
-#TODO : ajouter doc
-#TODO : conservation de l'indentation
+#TODO : advanced analysis of context (class and nested class, ....)
+#TODO : error managing
+#TODO : add more method ?
+#TODO : add doc
 
 def getTemplate(func):
     funcs = {
@@ -55,7 +54,6 @@ def generateMethod(method, currentBuffer):
             if match_line:
                 sub = match_line.group(2)
                 wrapper = list(match_line.group(1,3))
-                #TODO : verifier
             variables  = getVars(currentBuffer)
             class_name = variables.pop()
             tmp = generateMethodReturn(sub, variables, class_name, wrapper)
