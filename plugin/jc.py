@@ -12,7 +12,9 @@ from generate import
 
 def generateCode(method):
     currentBuffer = vim.current.buffer
-    (row, _) = vim.current.window.cursor
+    row = vim.current.line
+    vim.command('echo Beginning generation')
     currentBuffer.append(generateMethod(method, currentBuffer), row)
+    vim.command('echo End of generation')
 
 
