@@ -5,11 +5,6 @@ python << EOF
 import re
 import vim
 
-#TODO : advanced analysis of context (class and nested class, ....)
-#TODO : error managing
-#TODO : add more method ?
-#TODO : add doc
-
 def getTemplate(func):
     funcs = {
         'equals' : [
@@ -33,38 +28,49 @@ def getTemplate(func):
     }
     return funcs[func]
 
+class ClassRange:
+    def __init__(self, name, begin, end):
+        self.name  = name
+        self.begin = begin
+        self.end   = end
+        self.attr  = []
+
 def generateMethodReturn(return_line, attributes, class_name='', wrapper=['','']):
-    echo = "echo 'attributes : ["+','.join(attributes)+"]'"
-    vim.command(echo)
-    return_tmp = return_line.split(';')
-    result = list()
-    for elt in attributes:
-        result.append(re.sub(r'%attr', elt, return_tmp[0]))
-    wrapper[0] = re.sub(r'%class', class_name, wrapper[0])
-    (row,_) = vim.current.window.cursor
-    indent = int(vim.eval('indent({})'.format(str(row-1))))
-    tabStr = "".join([" "]*indent)
+    return_tmp  = return_line.split(';')
+    result      = [ re.sub(r'%attr', v, return_tmp[0]) for v in attributes ]
+    wrapper[0]  = re.sub(r'%class', class_name, wrapper[0])
+    (row,_)     = vim.current.window.cursor
+    indent      = int(vim.eval('indent({})'.format(str(row-1))))
+    tabStr      = "".join([" "]*indent)
     return tabStr + 'return ' + wrapper[0] + str(' '+return_tmp[1]+' ').join(result) + wrapper[1] + ";"
 
+def nameToIdx(name, classes):
+    for idx,elt in enumerate(classes):
+        if elt.name == name:
+            return idx
+    return 0
+
+def parseTemplate(line, row, currentBuffer):
+    if re.match('return .*', line):
+        match_line = re.match(r'return (.*\()(%attr;.)(\))', line)
+        sub = line.split(' ')[-1]
+        wrapper = ['', '']
+        if match_line:
+            sub = match_line.group(2)
+            wrapper = list(match_line.group(1,3))
+        classes    = getClasses(currentBuffer)
+        variables  = getVars(currentBuffer, classes)
+        class_name = getWrapperClass( classes,row )
+        class_idx  = nameToIdx(class_name, classes)
+        line       = generateMethodReturn(sub, classes[class_idx].attr, class_name, wrapper)
+    return line
+
+
 def generateMethod(method, currentBuffer):
-    code = list()
     (row,_) = vim.current.window.cursor
     indent = int(vim.eval('indent({})'.format(str(row-1))))
     tabStr = "".join([" "]*indent)
-    for line in getTemplate(method):
-        tmp = line
-        if re.match('return .*', line):
-            match_line = re.match(r'return (.*\()(%attr;.)(\))', line)
-            sub = line.split(' ')[-1]
-            wrapper = ['', '']
-            if match_line:
-                sub = match_line.group(2)
-                wrapper = list(match_line.group(1,3))
-            variables  = getVars(currentBuffer)
-            class_name = getWrapperClass( getClasses(currentBuffer),row )
-            tmp = generateMethodReturn(sub, variables, class_name, wrapper)
-        code.append(tabStr + tmp)
-    return code
+    return [ tabStr + parseTemplate(line, row, currentBuffer) for line in getTemplate(method) ]
 
 def generateCode(method):
     currentBuffer = vim.current.buffer
@@ -73,26 +79,26 @@ def generateCode(method):
 
 
 def getClassName(strLine):
-    class_match = re.match('(?:(?:public)|(?:private))? class (\w*)(?: implements .*)? ?{?', strLine)
+    class_match = re.match('\s*(?:(?:public)|(?:private))? class (\w*)(?: implements .*)? ?{?', strLine)
     class_ = None
     if class_match:
         class_ = class_match.group(1)
     return class_
 
-def getClassRange(line, currentBuffer):
+def getClassRange(line, currentBuffer, className):
     endOfFile = len(currentBuffer)
     numOfBracket = 0
     currentLine = line
-    endOfClass = False
+    endOfClass = True
     while currentLine < endOfFile and endOfClass:
-        if re.match('.*{.*', currentBuffer[currentLine]):
-            numOfBracket = NumOfBracket + 1
-        if re.match('.*}.*', currentBuffer[currentLine]):
-            numOfBracket = NumOfBracket - 1
+        if re.search('{', currentBuffer[currentLine]):
+            numOfBracket = numOfBracket + 1
+        if re.search('}', currentBuffer[currentLine]):
+            numOfBracket = numOfBracket - 1
         if numOfBracket == 0:
-            endOfClass = True
+            endOfClass = False
         currentLine = currentLine + 1
-    return (line, currentLine)
+    return ClassRange(className, line, currentLine)
 
 def getClasses(currentBuffer):
     currentLine = 0
@@ -101,18 +107,21 @@ def getClasses(currentBuffer):
     while currentLine < endOfFile:
         className = getClassName(currentBuffer[currentLine])
         if className:
-            classes.append( (className , getClassRange(currentLine, currentBuffer)) )
-            currentLine = classes[-1][-1][-1]
+            classes.append( getClassRange(currentLine, currentBuffer, className) )
         currentLine = currentLine + 1
     return classes
 
 def getWrapperClass(classes, line):
     idx = 1
-    while idx <= len(classes) and line not in range(classes[-idx][-1][0],classes[-idx][-1][1]+1):
+    while idx <= len(classes) and (line <= classes[-idx].begin or classes[-idx].end <= line):
         idx=idx+1
-        echo = "echo " + "'" + classes[-idx][0] + "'"
-        vim.command(echo)
-    return classes[-idx][0]
+    return classes[-idx].name
+
+def getWrapperClassIdx(classes, line):
+    idx = 1
+    while idx <= len(classes) and (line <= classes[-idx].begin or classes[-idx].end <= line):
+        idx=idx+1
+    return -idx
 
 def getVarName(line):
     tmp = re.match("^\s*(?:final)? ?(?:(?:public)|(?:private)) .* (\w*);\s*$", line)
@@ -121,18 +130,14 @@ def getVarName(line):
     else:
         return None
 
-def getVars(currentBuffer):
-    result = list()
-    #class_ = ""
+def getVars(currentBuffer, classes):
+    idx = 0
     for i in range(len(currentBuffer)):
         tmp = getVarName(currentBuffer[i])
         if tmp:
-            result.append(tmp)
-        #class_match = re.match('(?:(?:public)|(?:private))? class (\w*)(?: implements .*)? ?{?', currentBuffer[i])
-        #if class_match:
-        #    class_ = class_match.group(1)
-    #result.append(class_)
-    return result
+            idx = getWrapperClassIdx(classes, i)
+            classes[idx].attr.append(tmp)
+    return idx
 EOF
 
 function! s:GenerateMethod(method)
@@ -142,4 +147,17 @@ generateCode(vim.eval("a:method"))
 EOF
 endfunction
 
+function! s:ListAttributes()
+python << EOF
+import vim
+classes = getClasses(vim.current.buffer)
+getVars(vim.current.buffer, classes)
+string = ''
+for c in classes:
+    string = string + c.name +'['+str(c.begin)+','+str(c.end)+']' + ' : ' + ",".join(c.attr) + "\n"
+vim.command("echo '"+string+"'")
+EOF
+endfunction
+
 command! -nargs=1 GenerateMethod call s:GenerateMethod(<f-args>)
+command! -nargs=0 ListAttributes call s:ListAttributes(<f-args>)
