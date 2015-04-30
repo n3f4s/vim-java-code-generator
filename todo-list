@@ -1,5 +1,7 @@
-#TODO : advanced analysis of context (class and nested class, ....)
-#TODO : error managing
+#TODO : error managing -> method out of class <-- throw except
+#TODO : add management of super classes in the constructor
 #TODO : add more method ?
 #TODO : add doc
 #TODO : Improve
+#TODO : advanced template system ?
+#TODO : advanced analysis of context (class and nested class, ....)

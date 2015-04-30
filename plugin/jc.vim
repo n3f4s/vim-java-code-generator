@@ -4,6 +4,7 @@ python << EOF
 
 import re
 import vim
+import sys
 
 def getTemplate(func):
     funcs = {
@@ -23,6 +24,12 @@ def getTemplate(func):
             '@Override',
             'Object clone(){',
             'return new %class(%attr;,)',
+            '}'
+        ],
+        'toString' : [
+            '@Override',
+            'String toString(){',
+            'return %attr.toString();+',
             '}'
         ]
     }
@@ -52,7 +59,7 @@ def nameToIdx(name, classes):
 
 def parseTemplate(line, row, currentBuffer):
     if re.match('return .*', line):
-        match_line = re.match(r'return (.*\()(%attr;.)(\))', line)
+        match_line = re.match(r'return (.*\()(%attr;.)(\))', line) 
         sub = line.split(' ')[-1]
         wrapper = ['', '']
         if match_line:
@@ -75,7 +82,13 @@ def generateMethod(method, currentBuffer):
 def generateCode(method):
     currentBuffer = vim.current.buffer
     (row,_) = vim.current.window.cursor
-    currentBuffer.append(generateMethod(method, currentBuffer), row)
+    try:
+        currentBuffer.append(generateMethod(method, currentBuffer), row)
+    except KeyError:
+        sys.stderr.write('Unknown method : '+method)
+    except IndexError:
+        sys.stderr.write('Can\'t generate method out of class')
+    #TODO : finir la gestion des exceptions
 
 
 def getClassName(strLine):
@@ -115,12 +128,16 @@ def getWrapperClass(classes, line):
     idx = 1
     while idx <= len(classes) and (line <= classes[-idx].begin or classes[-idx].end <= line):
         idx=idx+1
+    if idx > len(classes):
+        raise IndexError
     return classes[-idx].name
 
 def getWrapperClassIdx(classes, line):
     idx = 1
     while idx <= len(classes) and (line <= classes[-idx].begin or classes[-idx].end <= line):
         idx=idx+1
+    if idx > len(classes):
+        raise IndexError
     return -idx
 
 def getVarName(line):
@@ -138,12 +155,48 @@ def getVars(currentBuffer, classes):
             idx = getWrapperClassIdx(classes, i)
             classes[idx].attr.append(tmp)
     return idx
+
+def generateClass(args):
+    #GenerateClass (public|private)? implements truc<>,machine extend truc
+    (row,_)    = vim.current.window.cursor
+    name       = vim.current.buffer.name.split('/')[-1].split('.')[0]
+    argv       = args.split(' ')
+    result     = name
+    visibility = 'public'
+    implements = ''
+    extend     = ''
+    idx        = 0
+    while idx<len(argv):
+        if argv[idx]=='public' or argv[idx]=='private':
+            visibility=argv[idx]
+        elif re.match('implement',argv[idx], re.IGNORECASE):
+            idx = idx + 1
+            implements = ' implements ' + re.sub('<>', '<'+name+'>', argv[idx]) + ' '
+        elif re.match('extend', argv[idx], re.IGNORECASE):
+            idx = idx + 1
+            extend = ' extends ' + re.sub('<>', '<'+name+'>', argv[idx]) +' '
+        idx = idx + 1
+    vim.current.buffer.append(
+        [
+            visibility+' class  '+name+implements+extend+'{',
+            'public '+name+'(){',
+            '}',
+            '}'
+        ],row)
+
 EOF
 
 function! s:GenerateMethod(method)
 python << EOF
 import vim
 generateCode(vim.eval("a:method"))
+EOF
+endfunction
+
+function! s:GenerateClass(arg)
+python << EOF
+import vim
+generateClass(vim.eval("a:arg"))
 EOF
 endfunction
 
@@ -161,3 +214,4 @@ endfunction
 
 command! -nargs=1 GenerateMethod call s:GenerateMethod(<f-args>)
 command! -nargs=0 ListAttributes call s:ListAttributes(<f-args>)
+command! -nargs=1 GenerateClass  call s:GenerateClass(<f-args>)
